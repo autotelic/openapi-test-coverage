@@ -1,6 +1,6 @@
 # openapi-test-coverage
 
-OpenAPI test coverage analysis based on the [A-TEST '19 paper](https://personal.us.es/amarlop/wp-content/uploads/2019/09/A_TEST_2019.pdf) "Test Coverage Criteria for RESTful Web APIs" (Martin-Lopez, Segura, Ruiz-Cortes).
+OpenAPI test coverage analysis based on the [A-TEST '19 paper](./Test_Coverage_Criteria_for_RESTful_Web_APIs.pdf) "Test Coverage Criteria for RESTful Web APIs" (Martin-Lopez, Segura, Ruiz-Cortes).
 
 Records HTTP traffic during integration tests, computes coverage against an OpenAPI 3.x spec, and reports results across 10 criteria organised into Test Coverage Levels (TCL 0--7).
 
