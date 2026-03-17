@@ -1,0 +1,81 @@
+{
+  "name": "openapi-test-coverage",
+  "version": "0.1.0",
+  "description": "OpenAPI test coverage analysis based on the A-TEST '19 coverage criteria (TCL 0-7). Records HTTP traffic, computes coverage against an OpenAPI spec, and reports results.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.mts",
+        "default": "./dist/index.mjs"
+      },
+      "require": {
+        "types": "./dist/index.d.cts",
+        "default": "./dist/index.cjs"
+      }
+    },
+    "./adapters/fastify": {
+      "import": {
+        "types": "./dist/adapters/fastify.d.mts",
+        "default": "./dist/adapters/fastify.mjs"
+      },
+      "require": {
+        "types": "./dist/adapters/fastify.d.cts",
+        "default": "./dist/adapters/fastify.cjs"
+      }
+    },
+    "./adapters/mocha": {
+      "import": {
+        "types": "./dist/adapters/mocha.d.mts",
+        "default": "./dist/adapters/mocha.mjs"
+      },
+      "require": {
+        "types": "./dist/adapters/mocha.d.cts",
+        "default": "./dist/adapters/mocha.cjs"
+      }
+    }
+  },
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.mjs",
+  "types": "./dist/index.d.cts",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsup --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "prepublishOnly": "pnpm build"
+  },
+  "dependencies": {
+    "colorette": "^2.0.20"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.27",
+    "fastify": "^4.26.0",
+    "tsup": "^8.0.0",
+    "typescript": "^5.4.0",
+    "vitest": "^3.0.0"
+  },
+  "peerDependencies": {
+    "fastify": ">=4.0.0"
+  },
+  "peerDependenciesMeta": {
+    "fastify": {
+      "optional": true
+    }
+  },
+  "keywords": [
+    "openapi",
+    "swagger",
+    "test-coverage",
+    "api-testing",
+    "coverage",
+    "rest-api",
+    "mocha",
+    "integration-testing"
+  ]
+}
