@@ -3,12 +3,20 @@
   "version": "0.1.0",
   "description": "OpenAPI test coverage analysis based on the A-TEST '19 coverage criteria (TCL 0-7). Records HTTP traffic, computes coverage against an OpenAPI spec, and reports results.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/autotelic/openapi-test-coverage.git"
+  },
+  "bugs": {
+    "url": "https://github.com/autotelic/openapi-test-coverage/issues"
+  },
+  "homepage": "https://github.com/autotelic/openapi-test-coverage#readme",
   "type": "module",
   "exports": {
     ".": {
       "import": {
-        "types": "./dist/index.d.mts",
-        "default": "./dist/index.mjs"
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
       },
       "require": {
         "types": "./dist/index.d.cts",
@@ -17,8 +25,8 @@
     },
     "./adapters/fastify": {
       "import": {
-        "types": "./dist/adapters/fastify.d.mts",
-        "default": "./dist/adapters/fastify.mjs"
+        "types": "./dist/adapters/fastify.d.ts",
+        "default": "./dist/adapters/fastify.js"
       },
       "require": {
         "types": "./dist/adapters/fastify.d.cts",
@@ -27,8 +35,8 @@
     },
     "./adapters/mocha": {
       "import": {
-        "types": "./dist/adapters/mocha.d.mts",
-        "default": "./dist/adapters/mocha.mjs"
+        "types": "./dist/adapters/mocha.d.ts",
+        "default": "./dist/adapters/mocha.js"
       },
       "require": {
         "types": "./dist/adapters/mocha.d.cts",
@@ -37,7 +45,7 @@
     }
   },
   "main": "./dist/index.cjs",
-  "module": "./dist/index.mjs",
+  "module": "./dist/index.js",
   "types": "./dist/index.d.cts",
   "files": [
     "dist"
