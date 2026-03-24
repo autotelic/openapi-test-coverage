@@ -20,7 +20,7 @@ export interface FastifyCoverageOptions {
  *
  * @example
  * ```ts
- * import { registerCoverageHooks } from 'openapi-test-coverage/adapters/fastify'
+ * import { registerCoverageHooks } from '@autotelic/openapi-test-coverage/adapters/fastify'
  * const recorder = registerCoverageHooks(app)
  * ```
  */

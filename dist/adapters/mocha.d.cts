@@ -34,7 +34,7 @@ interface MochaCoverageOptions {
  * @example
  * ```js
  * // In rootHooks.js
- * const { createCoverageAfterAll } = require('openapi-test-coverage/adapters/mocha')
+ * const { createCoverageAfterAll } = require('@autotelic/openapi-test-coverage/adapters/mocha')
  *
  * module.exports.mochaHooks = {
  *   async afterAll() {

@@ -1,4 +1,4 @@
-# openapi-test-coverage
+# @autotelic/openapi-test-coverage
 
 OpenAPI test coverage analysis based on the [A-TEST '19 paper](./Test_Coverage_Criteria_for_RESTful_Web_APIs.pdf) "Test Coverage Criteria for RESTful Web APIs" (Martin-Lopez, Segura, Ruiz-Cortes).
 
@@ -20,7 +20,7 @@ Records HTTP traffic during integration tests, computes coverage against an Open
 ## Install
 
 ```bash
-npm install openapi-test-coverage
+npm install @autotelic/openapi-test-coverage
 ```
 
 Or from git:
@@ -36,7 +36,7 @@ npm install https://github.com/autotelic/openapi-test-coverage.git
 Use the Fastify adapter to automatically record all requests and responses:
 
 ```js
-const { registerCoverageHooks } = require('openapi-test-coverage/adapters/fastify')
+const { registerCoverageHooks } = require('@autotelic/openapi-test-coverage/adapters/fastify')
 
 // After creating your Fastify app and registering routes:
 const recorder = registerCoverageHooks(app, { autoAssertOnInject: true })
@@ -47,7 +47,7 @@ await app.ready()
 Or record manually with the core `Recorder`:
 
 ```js
-const { Recorder } = require('openapi-test-coverage')
+const { Recorder } = require('@autotelic/openapi-test-coverage')
 
 const recorder = new Recorder()
 
@@ -64,7 +64,7 @@ recorder.record({
 ### 2. Compute coverage
 
 ```js
-const { computeCoverage } = require('openapi-test-coverage')
+const { computeCoverage } = require('@autotelic/openapi-test-coverage')
 
 const coverage = computeCoverage(recorder.getCalls(), openapiSpec, {
   excludedPaths: ['/internal/health'],
@@ -79,7 +79,7 @@ console.log(`Operations: ${coverage.operation.covered}/${coverage.operation.tota
 ### 3. Report
 
 ```js
-const { printReport, writeJsonReport, writeHtmlReport } = require('openapi-test-coverage')
+const { printReport, writeJsonReport, writeHtmlReport } = require('@autotelic/openapi-test-coverage')
 
 printReport(coverage, { verbose: true })
 
@@ -94,7 +94,7 @@ writeHtmlReport(coverage, 'test/output/openapi-coverage.html')
 `registerCoverageHooks(app, options?)` registers `onSend` and `onResponse` hooks on a Fastify instance. Returns a `Recorder`.
 
 ```js
-const { registerCoverageHooks } = require('openapi-test-coverage/adapters/fastify')
+const { registerCoverageHooks } = require('@autotelic/openapi-test-coverage/adapters/fastify')
 
 const recorder = registerCoverageHooks(app, {
   // Pass an existing recorder (optional, creates one if omitted)
@@ -109,7 +109,7 @@ const recorder = registerCoverageHooks(app, {
 `createCoverageAfterAll(options)` returns a function suitable for use in Mocha's `afterAll` hook. It computes coverage, prints reports, and optionally enforces a minimum TCL.
 
 ```js
-const { createCoverageAfterAll } = require('openapi-test-coverage/adapters/mocha')
+const { createCoverageAfterAll } = require('@autotelic/openapi-test-coverage/adapters/mocha')
 
 module.exports.mochaHooks = {
   async beforeAll() {
