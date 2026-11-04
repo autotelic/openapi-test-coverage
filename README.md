@@ -91,7 +91,7 @@ writeHtmlReport(coverage, 'test/output/openapi-coverage.html')
 
 ### Fastify
 
-`registerCoverageHooks(app, options?)` registers `onSend` and `onResponse` hooks on a Fastify instance. Returns a `Recorder`.
+`registerCoverageHooks(app, options?)` registers `onSend` and `onResponse` hooks on a Fastify instance (plus `preSerialization` and `onError` when recording raw bodies). Returns a `Recorder`.
 
 ```js
 const { registerCoverageHooks } = require('@autotelic/openapi-test-coverage/adapters/fastify')
@@ -101,6 +101,8 @@ const recorder = registerCoverageHooks(app, {
   recorder: myRecorder,
   // Wrap app.inject() to auto-mark responses as asserted (default: true)
   autoAssertOnInject: true,
+  // Also record the handler's body before serialization, for conformance (default: true)
+  recordRawBody: true,
 })
 ```
 
@@ -145,6 +147,8 @@ module.exports.mochaHooks = {
 | `Recorder` | Class that stores recorded HTTP calls. Methods: `record(opts)`, `markLastResponseAsserted()`, `getCalls()`, `clear()`. |
 | `computeCoverage(calls, spec, config?)` | Compute all coverage metrics and TCL from recorded calls against an OpenAPI spec. Returns a `CoverageResult`. |
 | `computeTcl(inputs)` | Compute the TCL (0--6) from individual metric totals/covered counts. |
+| `checkConformance(calls, spec, config?)` | Check recorded responses against their response schemas; see [Response Conformance](#response-conformance). Returns a `ConformanceResult`. |
+| `compareConformance(result, { baseline?, allowed? })` | Sort violations into `new`, `baselined`, and `allowed`, and list `stale` baseline entries. |
 | `walkSpec(spec, excludedPaths?)` | Extract all coverage targets (paths, operations, parameters, etc.) from a resolved OpenAPI spec. |
 | `matchRequestToSpec(call, specPaths, basePath)` | Match a recorded request to a spec path template. |
 | `getBasePath(spec)` | Derive the base path from the spec's `servers[0].url`. |
@@ -158,6 +162,8 @@ module.exports.mochaHooks = {
 | `printReport(coverage, opts?)` | Print a coloured console report. Options: `{ verbose: boolean, maxMissingItems: number }`. |
 | `writeJsonReport(coverage, filepath)` | Write coverage as JSON. Creates parent directories if needed. |
 | `writeHtmlReport(coverage, filepath)` | Write a standalone HTML report. |
+| `printConformanceReport(result, comparison, opts?)` | Print the conformance summary and new violations. Options: `{ maxItems: number }`. |
+| `writeConformanceJsonReport(result, comparison, filepath)` | Write the conformance report as JSON, including `baselineKeys`. |
 
 ### Configuration
 
@@ -194,6 +200,50 @@ interface CoverageResult {
   tcl: number
 }
 ```
+
+## Response Conformance
+
+Coverage says which parts of the spec the tests reached. Conformance says whether the responses they got back actually match it.
+
+That needs more than validating the response the client received. Fastify serializes a response through its route schema, and the serializer forces the body into shape: fields the schema does not declare are **silently dropped**, and wrong types are **coerced** (`null` becomes `0` or `""`). The body that leaves the server always looks valid. So the Fastify adapter also records what the handler returned before serialization (`responseRawBody`), and `checkConformance` reports three kinds of violation:
+
+| Kind | Meaning | Key |
+|------|---------|-----|
+| `schema` | The handler's body breaks the response schema (type, enum, format, required, …). | `GET /items/{id} 200 schema:type price` |
+| `dropped` | A field the handler returned never reached the client: the schema does not declare it. | `GET /items/{id} 200 dropped items[].secret` |
+| `status` | The status code is not documented for the operation (exact, `4XX` range, or `default`). | `GET /items/{id} 500 status` |
+
+Fastify's default error handler serializes an error without running `preSerialization`, so on that path the adapter records the body Fastify sends when no schema applies (`statusCode`, `code`, `error`, `message`). A response schema that strips any of those is reported as `dropped`. That is how a 409 whose schema declares only a custom field reaches the client as `{ "undoRefusal": "…" }` and nothing else.
+
+```js
+const { checkConformance, compareConformance } = require('@autotelic/openapi-test-coverage')
+
+const result = checkConformance(recorder.getCalls(), openapiSpec, { excludedPaths: [] })
+const comparison = compareConformance(result, {
+  baseline: require('./openapi-conformance-baseline.json'), // known debt; entries that stop occurring come back as `stale`
+  allowed: ['* * * dropped password_hash'],                // intended; `*` matches one key segment
+})
+comparison.new // violations that should fail a run
+```
+
+With Mocha, pass `conformance` to `createCoverageAfterAll`. It reports only, unless `failOnNew` is set. The JSON report's `baselineKeys` is the baseline that accepts the current state, so a first run produces it:
+
+```js
+createCoverageAfterAll({
+  getRecorder: () => app.coverageRecorder,
+  getSpec: () => app.openapiSpec,
+  conformance: {
+    baseline: require('../openapi-conformance-baseline.json'),
+    allowed: [],
+    failOnNew: process.env.OPENAPI_CONFORMANCE_FAIL === '1',
+    jsonReportPath: process.env.OPENAPI_CONFORMANCE_JSON,
+  },
+})
+```
+
+Schemas are validated with Ajv against the spec document itself, not the framework's copy of it. OpenAPI 3.0's `nullable` and boolean `exclusiveMinimum`/`exclusiveMaximum` are rewritten to their JSON Schema meaning first, and 3.1 specs use JSON Schema 2020-12. A schema that cannot compile is listed in `result.skipped` and its responses are not checked. The run does not fail on it.
+
+Conformance keys write array children as `items[].id`. Coverage keys (and so `excludedResponseBodyProperties`) still use `items[]..id`, which is kept as-is so that existing exclusion lists keep matching.
 
 ## Development
 

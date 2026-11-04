@@ -1,9 +1,34 @@
-import type { OpenAPISpec, CoverageConfig, CoverageResult } from '../types.js'
+import type {
+  OpenAPISpec,
+  CoverageConfig,
+  CoverageResult,
+  ConformanceResult,
+  ConformanceComparison,
+} from '../types.js'
 import type { Recorder } from '../recorder.js'
 import { computeCoverage } from '../coverage.js'
-import { printReport } from '../reporters/console.js'
-import { writeJsonReport } from '../reporters/json.js'
+import { checkConformance, compareConformance } from '../conformance.js'
+import { printReport, printConformanceReport } from '../reporters/console.js'
+import { writeJsonReport, writeConformanceJsonReport } from '../reporters/json.js'
 import { writeHtmlReport } from '../reporters/html.js'
+
+export interface MochaConformanceOptions {
+  /** Known violations, by key. Matching violations are reported but do not fail the run. */
+  baseline?: string[]
+  /** Intended violations (e.g. an internal column the schema strips on purpose). `*` matches one segment. */
+  allowed?: string[]
+  /**
+   * Throw when a violation is neither baselined nor allowed. Default false: report only, so a
+   * first run can produce the baseline.
+   */
+  failOnNew?: boolean
+  /** If set, write the conformance report (result + comparison) as JSON to this path. */
+  jsonReportPath?: string
+  /** Print the console summary. Default true. */
+  console?: boolean | { maxItems?: number }
+  /** Called with the result and comparison, before the failure check. */
+  onConformance?: (result: ConformanceResult, comparison: ConformanceComparison) => void
+}
 
 export interface MochaCoverageOptions {
   /** Return the Recorder that has been accumulating calls. */
@@ -28,6 +53,11 @@ export interface MochaCoverageOptions {
    * Useful for custom assertions or side effects.
    */
   onCoverage?: (coverage: CoverageResult) => void
+  /**
+   * Check recorded responses against the spec's response schemas (see `checkConformance`).
+   * Off unless set. Needs the Fastify adapter's raw-body recording to see stripped fields.
+   */
+  conformance?: MochaConformanceOptions
 }
 
 /**
@@ -88,12 +118,44 @@ export function createCoverageAfterAll(options: MochaCoverageOptions): () => voi
       options.onCoverage(coverage)
     }
 
+    const failures: string[] = []
+
     const minTcl = options.minTcl
     if (minTcl != null && !Number.isNaN(minTcl) && coverage.tcl < minTcl) {
-      throw new Error(
+      failures.push(
         `OpenAPI coverage TCL ${coverage.tcl} is below required minimum ${minTcl}. ` +
           'Set OPENAPI_COVERAGE_MIN_TCL to override (e.g. 5 to allow lower).',
       )
+    }
+
+    const conformanceOptions = options.conformance
+    if (conformanceOptions) {
+      const result = checkConformance(calls, spec, options.config)
+      const comparison = compareConformance(result, conformanceOptions)
+
+      const conformanceConsole = conformanceOptions.console
+      if (conformanceConsole !== false) {
+        const maxItems = typeof conformanceConsole === 'object' ? conformanceConsole.maxItems : undefined
+        printConformanceReport(result, comparison, { maxItems })
+      }
+      if (conformanceOptions.jsonReportPath) {
+        writeConformanceJsonReport(result, comparison, conformanceOptions.jsonReportPath)
+      }
+      if (conformanceOptions.onConformance) {
+        conformanceOptions.onConformance(result, comparison)
+      }
+      if (conformanceOptions.failOnNew && comparison.new.length > 0) {
+        failures.push(
+          `${comparison.new.length} new response conformance violation(s): ` +
+            comparison.new.slice(0, 5).map(v => v.key).join('; ') +
+            (comparison.new.length > 5 ? '; …' : '') +
+            '. Fix the handler or the spec, or add the key to the conformance baseline.',
+        )
+      }
+    }
+
+    if (failures.length > 0) {
+      throw new Error(failures.join('\n'))
     }
   }
 }

@@ -1,3 +1,4 @@
+import { STATUS_CODES } from 'node:http'
 import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify'
 import { Recorder } from '../recorder.js'
 
@@ -9,6 +10,25 @@ export interface FastifyCoverageOptions {
    * call automatically marks the response as asserted.
    */
   autoAssertOnInject?: boolean
+  /**
+   * When true (default), also record what the handler returned before Fastify serialized it,
+   * so `checkConformance()` can see fields the response schema stripped and values it coerced.
+   */
+  recordRawBody?: boolean
+}
+
+const RAW_BODY = Symbol('openApiCoverageRawBody')
+const ERROR_BODY = Symbol('openApiCoverageErrorBody')
+
+type RecordingRequest = FastifyRequest & { [RAW_BODY]?: unknown; [ERROR_BODY]?: unknown }
+
+/** Snapshot through JSON, as any serializer would see it: `toJSON` applied, `undefined` gone. */
+function snapshot(payload: unknown): unknown {
+  try {
+    return JSON.parse(JSON.stringify(payload))
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -30,6 +50,38 @@ export function registerCoverageHooks(
 ): Recorder {
   const recorder = options.recorder ?? new Recorder()
   const autoAssert = options.autoAssertOnInject !== false
+  const recordRawBody = options.recordRawBody !== false
+
+  if (recordRawBody) {
+    app.addHook('preSerialization', function preSerializationCaptureRawBody(
+      request: FastifyRequest,
+      _reply: FastifyReply,
+      payload: unknown,
+      done: (err: Error | null, value?: unknown) => void,
+    ) {
+      ;(request as RecordingRequest)[RAW_BODY] = snapshot(payload)
+      done(null, payload)
+    })
+
+    // Fastify's default error handler serializes an error without running preSerialization, so
+    // the raw body is lost on that path. Record instead what Fastify sends for the error when no
+    // schema applies; a response schema that drops part of it has stripped the error's meaning.
+    app.addHook('onError', function onErrorCaptureErrorBody(
+      request: FastifyRequest,
+      reply: FastifyReply,
+      error: Error & { code?: unknown; statusCode?: unknown },
+      done: () => void,
+    ) {
+      const statusCode = reply.statusCode >= 400 ? reply.statusCode : Number(error.statusCode) || 500
+      ;(request as RecordingRequest)[ERROR_BODY] = {
+        statusCode,
+        ...(error.code !== undefined ? { code: error.code } : {}),
+        error: STATUS_CODES[statusCode] ?? 'Error',
+        message: error.message,
+      }
+      done()
+    })
+  }
 
   app.addHook('onSend', function onSendCapturePayload(
     request: FastifyRequest,
@@ -72,6 +124,10 @@ export function registerCoverageHooks(
       responseStatusCode: reply.statusCode,
       responseContentType: (reply.getHeader?.('content-type') as string) || null,
       responseBody,
+      responseRawBody: (request as RecordingRequest)[RAW_BODY],
+      responseErrorBody: (request as RecordingRequest)[RAW_BODY] === undefined
+        ? (request as RecordingRequest)[ERROR_BODY]
+        : undefined,
     })
     done()
   })
