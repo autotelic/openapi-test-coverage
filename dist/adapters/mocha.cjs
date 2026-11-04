@@ -458,12 +458,19 @@ var OPENAPI_FORMATS = {
   binary: { type: "string", validate: () => true },
   password: { type: "string", validate: () => true }
 };
-function toJsonSchemaDialect(value) {
-  if (Array.isArray(value)) return value.map(toJsonSchemaDialect);
+function toJsonSchemaDialect(value, seen = /* @__PURE__ */ new WeakMap()) {
   if (value === null || typeof value !== "object") return value;
+  if (seen.has(value)) return seen.get(value);
+  if (Array.isArray(value)) {
+    const items = [];
+    seen.set(value, items);
+    for (const item of value) items.push(toJsonSchemaDialect(item, seen));
+    return items;
+  }
   const out = {};
+  seen.set(value, out);
   for (const [key, child] of Object.entries(value)) {
-    out[key] = toJsonSchemaDialect(child);
+    out[key] = toJsonSchemaDialect(child, seen);
   }
   for (const [flag, bound] of [["exclusiveMinimum", "minimum"], ["exclusiveMaximum", "maximum"]]) {
     if (typeof out[flag] === "boolean") {
@@ -507,7 +514,7 @@ function createResponseValidator(spec) {
   for (const [name, format] of Object.entries(OPENAPI_FORMATS)) {
     ajv.addFormat(name, format);
   }
-  const document = is31 ? spec : toJsonSchemaDialect(spec);
+  const document = toJsonSchemaDialect(spec);
   ajv.addSchema(document, SPEC_ID);
   const compiled = /* @__PURE__ */ new Map();
   return {

@@ -30,13 +30,21 @@ export interface ResponseValidator {
  * into draft-07 so Ajv's meaning is the spec's meaning. Ajv's own `nullable` support refuses a
  * schema without `type`, which `$ref` + `nullable` routinely is.
  */
-export function toJsonSchemaDialect(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(toJsonSchemaDialect)
+export function toJsonSchemaDialect(value: unknown, seen = new WeakMap<object, unknown>()): unknown {
   if (value === null || typeof value !== 'object') return value
+  // A spec dereferenced into shared (or cyclic) objects must not recurse forever.
+  if (seen.has(value)) return seen.get(value)
+  if (Array.isArray(value)) {
+    const items: unknown[] = []
+    seen.set(value, items)
+    for (const item of value) items.push(toJsonSchemaDialect(item, seen))
+    return items
+  }
 
   const out: Record<string, unknown> = {}
+  seen.set(value, out)
   for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
-    out[key] = toJsonSchemaDialect(child)
+    out[key] = toJsonSchemaDialect(child, seen)
   }
 
   for (const [flag, bound] of [['exclusiveMinimum', 'minimum'], ['exclusiveMaximum', 'maximum']] as const) {
@@ -87,7 +95,9 @@ export function createResponseValidator(spec: OpenAPISpec): ResponseValidator {
     ajv.addFormat(name, format as { type: 'number'; validate: (v: number) => boolean })
   }
 
-  const document = is31 ? spec : toJsonSchemaDialect(spec)
+  // 3.1 dropped `nullable`, but specs written for 3.0 habits still carry it and Fastify's
+  // serializer still honours it, so it is rewritten whatever the version.
+  const document = toJsonSchemaDialect(spec)
   ajv.addSchema(document as object, SPEC_ID)
 
   const compiled = new Map<string, ValidateFunction | string>()

@@ -171,6 +171,14 @@ describe('checkConformance', () => {
     expect(result).toEqual({ checked: 0, violations: [], skipped: [] })
   })
 
+  it('honours a 3.0-style nullable $ref in a 3.1 spec', () => {
+    const spec31: OpenAPISpec = { ...spec, openapi: '3.1.0' }
+    expect(checkConformance([call({ responseRawBody: project })], spec31).violations).toEqual([])
+    expect(
+      checkConformance([call({ responseRawBody: { ...project, id: null } })], spec31).violations.map(v => v.key),
+    ).toEqual(['GET /projects/{id} 200 schema:type id'])
+  })
+
   it('skips a schema that cannot compile instead of failing the run', () => {
     const broken: OpenAPISpec = {
       openapi: '3.0.3',
