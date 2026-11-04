@@ -55,6 +55,18 @@ describe('matchRequestToSpec', () => {
     expect(result).toEqual({ pathKey: '/items/{id}/reviews', method: 'GET', pathParams: { id: 'abc' } })
   })
 
+  it('prefers a literal segment over a longer parameter name at the same depth', () => {
+    const paths = ['/projects/{projectId}', '/projects/table']
+    const result = matchRequestToSpec({ method: 'GET', pathname: '/v1/projects/table' }, paths, '/v1')
+    expect(result).toEqual({ pathKey: '/projects/table', method: 'GET', pathParams: {} })
+  })
+
+  it('prefers fewer parameters when templates are equally deep', () => {
+    const paths = ['/projects/{projectId}/sites/{siteId}', '/projects/{id}/sites/summary']
+    const result = matchRequestToSpec({ method: 'GET', pathname: '/v1/projects/7/sites/summary' }, paths, '/v1')
+    expect(result).toEqual({ pathKey: '/projects/{id}/sites/summary', method: 'GET', pathParams: { id: '7' } })
+  })
+
   it('returns null for unmatched paths', () => {
     const result = matchRequestToSpec({ method: 'GET', pathname: '/v1/other' }, specPaths, '/v1')
     expect(result).toBeNull()

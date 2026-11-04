@@ -1,5 +1,5 @@
-import { R as RecordedCall, O as OpenAPISpec, C as CoverageConfig, a as CoverageResult, T as TclInputs, W as WalkedSpec, M as MatchResult, S as SchemaObject } from './recorder-QBQBCtUG.js';
-export { b as CoverageMetric, c as MediaTypeObject, d as OperationObject, P as ParameterObject, e as PathItem, f as Recorder, g as ResponseObject, h as SpecContentType, i as SpecOperation, j as SpecParameter, k as SpecParameterValue, l as SpecResponseBodyProperty, m as SpecStatusCode, n as SpecStatusCodeClass, o as isOperationKey } from './recorder-QBQBCtUG.js';
+import { R as RecordedCall, O as OpenAPISpec, C as CoverageConfig, a as CoverageResult, T as TclInputs, W as WalkedSpec, b as ConformanceResult, c as ConformanceComparison, M as MatchResult, S as SchemaObject } from './recorder-D5e9Fpe5.js';
+export { d as ConformanceKind, e as ConformanceViolation, f as CoverageMetric, g as MediaTypeObject, h as OperationObject, P as ParameterObject, i as PathItem, j as Recorder, k as ResponseObject, l as SpecContentType, m as SpecOperation, n as SpecParameter, o as SpecParameterValue, p as SpecResponseBodyProperty, q as SpecStatusCode, r as SpecStatusCodeClass, s as isOperationKey } from './recorder-D5e9Fpe5.js';
 
 declare function computeCoverage(recordedCalls: RecordedCall[], spec: OpenAPISpec, config?: CoverageConfig): CoverageResult;
 /**
@@ -16,11 +16,35 @@ declare function computeTcl(c: TclInputs): number;
  */
 declare function walkSpec(spec: OpenAPISpec, excludedPaths?: string[]): WalkedSpec;
 
+/**
+ * Check recorded responses against the spec: does each body match its schema, did any field the
+ * handler returned go missing on the way out, and is each status code documented?
+ *
+ * The schema check prefers `responseRawBody` (what the handler returned), because a
+ * schema-driven serializer coerces and strips until the sent body looks valid. Calls that match
+ * no documented operation are ignored; coverage reports those.
+ */
+declare function checkConformance(recordedCalls: RecordedCall[], spec: OpenAPISpec, config?: CoverageConfig): ConformanceResult;
+/**
+ * Sort violations into new, baselined, and allowed. The baseline is debt and should shrink, so
+ * entries that no longer occur come back as `stale`; the allow-list is intent and never does.
+ */
+declare function compareConformance(result: ConformanceResult, options?: {
+    baseline?: string[];
+    allowed?: string[];
+}): ConformanceComparison;
+
 declare function stripBasePath(pathname: string, basePath: string): string;
 declare function pathTemplateToRegex(pathTemplate: string): {
     regex: RegExp;
     paramNames: string[];
 };
+/**
+ * Most specific template first: deeper paths, then fewer parameters, then longer text.
+ * Length alone is not enough: `/projects/{projectId}` is longer than `/projects/table` and
+ * would claim `/projects/table` as a project id.
+ */
+declare function compareTemplateSpecificity(a: string, b: string): number;
 /**
  * Match a recorded request to a spec path template. Returns the matched
  * path key, normalised method, and extracted path params; or null if no
@@ -53,9 +77,14 @@ interface PrintReportOptions {
     maxMissingItems?: number;
 }
 declare function printReport(coverage: CoverageResult, opts?: PrintReportOptions): void;
+interface PrintConformanceReportOptions {
+    maxItems?: number;
+}
+declare function printConformanceReport(result: ConformanceResult, comparison: ConformanceComparison, opts?: PrintConformanceReportOptions): void;
 
 declare function writeJsonReport(coverage: CoverageResult, filepath: string): void;
+declare function writeConformanceJsonReport(result: ConformanceResult, comparison: ConformanceComparison, filepath: string): void;
 
 declare function writeHtmlReport(coverage: CoverageResult, filepath: string): void;
 
-export { CoverageConfig, CoverageResult, MatchResult, OpenAPISpec, type PrintReportOptions, RecordedCall, SchemaObject, TclInputs, WalkedSpec, collectPathsFromValue, collectSchemaPaths, computeCoverage, computeTcl, getBasePath, getConfig, matchRequestToSpec, pathTemplateToRegex, printReport, resolveSchemaRef, stripBasePath, walkSpec, writeHtmlReport, writeJsonReport };
+export { ConformanceComparison, ConformanceResult, CoverageConfig, CoverageResult, MatchResult, OpenAPISpec, type PrintConformanceReportOptions, type PrintReportOptions, RecordedCall, SchemaObject, TclInputs, WalkedSpec, checkConformance, collectPathsFromValue, collectSchemaPaths, compareConformance, compareTemplateSpecificity, computeCoverage, computeTcl, getBasePath, getConfig, matchRequestToSpec, pathTemplateToRegex, printConformanceReport, printReport, resolveSchemaRef, stripBasePath, walkSpec, writeConformanceJsonReport, writeHtmlReport, writeJsonReport };

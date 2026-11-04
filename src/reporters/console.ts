@@ -1,5 +1,11 @@
 import { bold, cyan, green, yellow, red, dim, gray } from 'colorette'
-import type { CoverageResult, CoverageMetric } from '../types.js'
+import type {
+  CoverageResult,
+  CoverageMetric,
+  ConformanceResult,
+  ConformanceComparison,
+  ConformanceViolation,
+} from '../types.js'
 
 function ratioColour(covered: number, total: number): string {
   if (total === 0) return gray('0/0')
@@ -60,4 +66,43 @@ export function printReport(coverage: CoverageResult, opts: PrintReportOptions =
     showMissing('Missing output content-types:', coverage.outputContentType)
     showMissing('Missing status code classes:', coverage.statusCodeClass)
   }
+}
+
+export interface PrintConformanceReportOptions {
+  maxItems?: number
+}
+
+export function printConformanceReport(
+  result: ConformanceResult,
+  comparison: ConformanceComparison,
+  opts: PrintConformanceReportOptions = {},
+): void {
+  const { maxItems = 15 } = opts
+  const count = (n: number, colour: (s: string) => string) => (n === 0 ? green('0') : colour(String(n)))
+
+  console.log()
+  console.log(bold(cyan('--- OpenAPI response conformance ---')))
+  console.log(dim('  Calls checked:       '), String(result.checked))
+  console.log(dim('  New violations:      '), count(comparison.new.length, red))
+  console.log(dim('  Baselined:           '), count(comparison.baselined.length, yellow))
+  console.log(dim('  Allowed:             '), String(comparison.allowed.length))
+  console.log(dim('  Stale baseline keys: '), count(comparison.stale.length, yellow))
+  if (result.skipped.length > 0) {
+    console.log(dim('  Uncompiled schemas:  '), yellow(String(result.skipped.length)))
+  }
+  console.log(dim('-------------------------------------------'))
+  console.log()
+
+  const show = (label: string, items: string[]) => {
+    if (items.length === 0) return
+    console.log(bold(yellow(label)))
+    items.slice(0, maxItems).forEach(item => console.log(dim('  ') + gray(item)))
+    if (items.length > maxItems) console.log(dim(`  ... and ${items.length - maxItems} more`))
+    console.log()
+  }
+  const describe = (v: ConformanceViolation) => `${v.key}  ${dim(`×${v.count} — ${v.message} (e.g. ${v.example})`)}`
+
+  show('New violations:', comparison.new.map(describe))
+  show('Stale baseline keys (no longer occur; remove them):', comparison.stale)
+  show('Schemas that did not compile (their responses were not checked):', result.skipped.map(s => `${s.schema}: ${s.reason}`))
 }

@@ -1,5 +1,24 @@
-import { f as Recorder, O as OpenAPISpec, C as CoverageConfig, a as CoverageResult } from '../recorder-QBQBCtUG.js';
+import { b as ConformanceResult, c as ConformanceComparison, j as Recorder, O as OpenAPISpec, C as CoverageConfig, a as CoverageResult } from '../recorder-D5e9Fpe5.js';
 
+interface MochaConformanceOptions {
+    /** Known violations, by key. Matching violations are reported but do not fail the run. */
+    baseline?: string[];
+    /** Intended violations (e.g. an internal column the schema strips on purpose). `*` matches one segment. */
+    allowed?: string[];
+    /**
+     * Throw when a violation is neither baselined nor allowed. Default false: report only, so a
+     * first run can produce the baseline.
+     */
+    failOnNew?: boolean;
+    /** If set, write the conformance report (result + comparison) as JSON to this path. */
+    jsonReportPath?: string;
+    /** Print the console summary. Default true. */
+    console?: boolean | {
+        maxItems?: number;
+    };
+    /** Called with the result and comparison, before the failure check. */
+    onConformance?: (result: ConformanceResult, comparison: ConformanceComparison) => void;
+}
 interface MochaCoverageOptions {
     /** Return the Recorder that has been accumulating calls. */
     getRecorder: () => Recorder | null | undefined;
@@ -26,6 +45,11 @@ interface MochaCoverageOptions {
      * Useful for custom assertions or side effects.
      */
     onCoverage?: (coverage: CoverageResult) => void;
+    /**
+     * Check recorded responses against the spec's response schemas (see `checkConformance`).
+     * Off unless set. Needs the Fastify adapter's raw-body recording to see stripped fields.
+     */
+    conformance?: MochaConformanceOptions;
 }
 /**
  * Create a Mocha-compatible `afterAll` hook that computes OpenAPI coverage
@@ -55,4 +79,4 @@ interface MochaCoverageOptions {
  */
 declare function createCoverageAfterAll(options: MochaCoverageOptions): () => void;
 
-export { type MochaCoverageOptions, createCoverageAfterAll };
+export { type MochaConformanceOptions, type MochaCoverageOptions, createCoverageAfterAll };

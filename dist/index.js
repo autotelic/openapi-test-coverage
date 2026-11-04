@@ -12,6 +12,9 @@ var Recorder = class {
       responseStatusCode: opts.responseStatusCode,
       responseContentType: opts.responseContentType ?? null,
       responseBody: opts.responseBody !== void 0 ? opts.responseBody : null,
+      ...opts.responseRawBody !== void 0 ? { responseRawBody: opts.responseRawBody } : {},
+      ...opts.responseRawDatePaths?.length ? { responseRawDatePaths: opts.responseRawDatePaths } : {},
+      ...opts.responseErrorBody !== void 0 ? { responseErrorBody: opts.responseErrorBody } : {},
       statusCodeAsserted: false
     });
   }
@@ -199,11 +202,20 @@ function pathTemplateToRegex(pathTemplate) {
   const regex = new RegExp("^" + pattern + "$");
   return { regex, paramNames };
 }
+function compareTemplateSpecificity(a, b) {
+  const segmentsA = a.split("/");
+  const segmentsB = b.split("/");
+  if (segmentsA.length !== segmentsB.length) return segmentsB.length - segmentsA.length;
+  const parametersA = segmentsA.filter((segment) => segment.includes("{")).length;
+  const parametersB = segmentsB.filter((segment) => segment.includes("{")).length;
+  if (parametersA !== parametersB) return parametersA - parametersB;
+  return b.length - a.length;
+}
 function matchRequestToSpec(recordedCall, specPathKeys, basePath) {
   const method = (recordedCall.method || "").toUpperCase();
   const rawPath = (recordedCall.pathname || "").replace(/\/+$/, "") || "/";
   const pathname = stripBasePath(rawPath, basePath);
-  const sortedPaths = [...specPathKeys].sort((a, b) => b.length - a.length);
+  const sortedPaths = [...specPathKeys].sort(compareTemplateSpecificity);
   for (const pathKey of sortedPaths) {
     const { regex, paramNames } = pathTemplateToRegex(pathKey);
     const match = pathname.match(regex);
@@ -426,6 +438,259 @@ function computeTcl(c) {
   return 6;
 }
 
+// src/response-validator.ts
+import AjvDraft07 from "ajv";
+import Ajv2020 from "ajv/dist/2020.js";
+import addFormats from "ajv-formats";
+var SPEC_ID = "openapi-spec.json";
+var OPENAPI_FORMATS = {
+  int32: { type: "number", validate: (v) => Number.isInteger(v) && v >= -(2 ** 31) && v < 2 ** 31 },
+  int64: { type: "number", validate: (v) => Number.isInteger(v) },
+  float: { type: "number", validate: () => true },
+  double: { type: "number", validate: () => true },
+  byte: { type: "string", validate: () => true },
+  binary: { type: "string", validate: () => true },
+  password: { type: "string", validate: () => true }
+};
+function toJsonSchemaDialect(value, seen = /* @__PURE__ */ new WeakMap()) {
+  if (value === null || typeof value !== "object") return value;
+  if (seen.has(value)) return seen.get(value);
+  if (Array.isArray(value)) {
+    const items = [];
+    seen.set(value, items);
+    for (const item of value) items.push(toJsonSchemaDialect(item, seen));
+    return items;
+  }
+  const out = {};
+  seen.set(value, out);
+  for (const [key, child] of Object.entries(value)) {
+    out[key] = toJsonSchemaDialect(child, seen);
+  }
+  for (const [flag, bound] of [["exclusiveMinimum", "minimum"], ["exclusiveMaximum", "maximum"]]) {
+    if (typeof out[flag] === "boolean") {
+      if (out[flag] === true && typeof out[bound] === "number") {
+        out[flag] = out[bound];
+        delete out[bound];
+      } else {
+        delete out[flag];
+      }
+    }
+  }
+  if (out.nullable === true) {
+    delete out.nullable;
+    if (typeof out.type === "string") {
+      out.type = [out.type, "null"];
+      if (Array.isArray(out.enum) && !out.enum.includes(null)) out.enum = [...out.enum, null];
+    } else if (!Array.isArray(out.type)) {
+      return { anyOf: [out, { type: "null" }] };
+    }
+  } else if (out.nullable === false) {
+    delete out.nullable;
+  }
+  return out;
+}
+function pointerSegment(segment) {
+  return encodeURIComponent(segment.replace(/~/g, "~0").replace(/\//g, "~1"));
+}
+function createResponseValidator(spec) {
+  const is31 = typeof spec.openapi === "string" && spec.openapi.startsWith("3.1");
+  const options = {
+    allErrors: true,
+    strict: false,
+    coerceTypes: false,
+    useDefaults: false,
+    removeAdditional: false,
+    validateSchema: false,
+    // Keeps the failing value on each error, so a report can say what arrived instead.
+    verbose: true,
+    logger: false
+  };
+  const ajv = is31 ? new Ajv2020(options) : new AjvDraft07(options);
+  addFormats(ajv);
+  for (const [name, format] of Object.entries(OPENAPI_FORMATS)) {
+    ajv.addFormat(name, format);
+  }
+  const document = toJsonSchemaDialect(spec);
+  ajv.addSchema(document, SPEC_ID);
+  const compiled = /* @__PURE__ */ new Map();
+  return {
+    validate(pointer, body) {
+      let entry = compiled.get(pointer);
+      if (entry === void 0) {
+        try {
+          entry = ajv.compile({ $ref: `${SPEC_ID}#${pointer}` });
+        } catch (err) {
+          entry = err instanceof Error ? err.message : String(err);
+        }
+        compiled.set(pointer, entry);
+      }
+      if (typeof entry === "string") return entry;
+      return entry(body) ? [] : [...entry.errors ?? []];
+    }
+  };
+}
+
+// src/conformance.ts
+var DATE_FORMATS = /* @__PURE__ */ new Set(["date", "date-time", "time"]);
+function documentedStatus(responses, statusCode) {
+  const exact = String(statusCode);
+  if (responses[exact]) return exact;
+  const range = `${exact[0]}XX`;
+  for (const key of Object.keys(responses)) {
+    if (key.toUpperCase() === range) return key;
+  }
+  return responses.default ? "default" : null;
+}
+function documentedMediaType(content, contentType) {
+  if (content[contentType]) return contentType;
+  if (contentType.includes("json")) {
+    const json = Object.keys(content).find((key) => key.toLowerCase().includes("json"));
+    if (json) return json;
+  }
+  return null;
+}
+function locationOf(instancePath) {
+  let out = "";
+  for (const raw of instancePath.split("/").slice(1)) {
+    const segment = raw.replace(/~1/g, "/").replace(/~0/g, "~");
+    if (/^\d+$/.test(segment)) out += "[]";
+    else out += out === "" ? segment : `.${segment}`;
+  }
+  return out;
+}
+function joinLocation(parent, child) {
+  return parent === "" ? child : `${parent}.${child}`;
+}
+function describeValue(value) {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  if (typeof value === "string") return value.length <= 24 ? `string ${JSON.stringify(value)}` : "string";
+  return typeof value;
+}
+function schemaViolation(error) {
+  let location = locationOf(error.instancePath);
+  if (error.keyword === "required") {
+    location = joinLocation(location, String(error.params.missingProperty));
+  }
+  const got = ["type", "format", "enum"].includes(error.keyword) && "data" in error ? `, got ${describeValue(error.data)}` : "";
+  return { location, keyword: error.keyword, message: `${location || "(body)"} ${error.message ?? "is invalid"}${got}` };
+}
+var propertyPaths = (value) => collectPathsFromValue(value).map((path3) => path3.replace(/\[\]\.\./g, "[]."));
+function droppedPaths(intended, sent) {
+  const kept = new Set(propertyPaths(sent));
+  const dropped = /* @__PURE__ */ new Set();
+  for (const path3 of propertyPaths(intended)) {
+    if (kept.has(path3)) continue;
+    if ([...dropped].some((parent) => path3.startsWith(`${parent}.`) || path3.startsWith(`${parent}[]`))) continue;
+    dropped.add(path3);
+  }
+  return [...dropped];
+}
+function checkConformance(recordedCalls, spec, config = {}) {
+  const { basePath, excludedPaths } = getConfig(spec, config.excludedPaths);
+  const specPaths = walkSpec(spec, excludedPaths).paths;
+  const validator = createResponseValidator(spec);
+  const violations = /* @__PURE__ */ new Map();
+  const skipped = /* @__PURE__ */ new Map();
+  let checked = 0;
+  const report = (call, v) => {
+    const detail = v.kind === "schema" ? `schema:${v.keyword}` : v.kind;
+    const key = [v.method, v.path, v.statusCode, detail, v.location].filter((part) => part !== "").join(" ");
+    const existing = violations.get(key);
+    if (existing) {
+      existing.count += 1;
+      return;
+    }
+    violations.set(key, { key, ...v, count: 1, example: `${call.method} ${call.pathname}` });
+  };
+  for (const call of recordedCalls) {
+    const matched = matchRequestToSpec(call, specPaths, basePath);
+    if (!matched) continue;
+    const operation = spec.paths?.[matched.pathKey]?.[matched.method.toLowerCase()];
+    if (!operation) continue;
+    checked += 1;
+    const { pathKey: path3, method } = matched;
+    const responses = operation.responses ?? {};
+    const statusCode = documentedStatus(responses, call.responseStatusCode);
+    if (statusCode === null) {
+      report(call, {
+        kind: "status",
+        method,
+        path: path3,
+        statusCode: String(call.responseStatusCode),
+        location: "",
+        message: `${call.responseStatusCode} is not documented for ${method} ${path3}`
+      });
+      continue;
+    }
+    const reported = { method, path: path3, statusCode: String(call.responseStatusCode) };
+    const contentType = (call.responseContentType ?? "").split(";")[0].trim().toLowerCase();
+    if (!contentType.includes("json")) continue;
+    const intended = call.responseRawBody !== void 0 ? call.responseRawBody : call.responseErrorBody;
+    if (intended !== void 0 && call.responseBody != null) {
+      for (const location of droppedPaths(intended, call.responseBody)) {
+        report(call, {
+          kind: "dropped",
+          ...reported,
+          location,
+          message: `${location} was returned by the handler but not sent: the response schema does not declare it`
+        });
+      }
+    }
+    const content = responses[statusCode]?.content;
+    if (!content) continue;
+    const mediaType = documentedMediaType(content, contentType);
+    if (!mediaType || content[mediaType]?.schema === void 0) continue;
+    const body = call.responseRawBody !== void 0 ? call.responseRawBody : call.responseBody;
+    if (body == null) continue;
+    const pointer = ["paths", path3, method.toLowerCase(), "responses", statusCode, "content", mediaType, "schema"].map(pointerSegment).join("/");
+    const errors = validator.validate(`/${pointer}`, body);
+    if (typeof errors === "string") {
+      skipped.set(`${method} ${path3} ${statusCode} ${mediaType}`, errors);
+      continue;
+    }
+    const datePaths = call.responseRawBody !== void 0 ? new Set(call.responseRawDatePaths ?? []) : /* @__PURE__ */ new Set();
+    for (const error of errors) {
+      if (error.keyword === "format" && DATE_FORMATS.has(String(error.params.format)) && datePaths.has(locationOf(error.instancePath))) {
+        continue;
+      }
+      report(call, { kind: "schema", ...reported, ...schemaViolation(error) });
+    }
+  }
+  return {
+    checked,
+    violations: [...violations.values()].sort((a, b) => a.key.localeCompare(b.key)),
+    skipped: [...skipped].map(([schema, reason]) => ({ schema, reason }))
+  };
+}
+function entryMatches(entry, key) {
+  const want = entry.trim().split(/\s+/);
+  const have = key.split(" ");
+  if (want.length !== have.length) return false;
+  return want.every((segment, i) => segment === "*" || segment === have[i]);
+}
+function compareConformance(result, options = {}) {
+  const baseline = (options.baseline ?? []).filter((entry) => typeof entry === "string" && entry.trim() !== "");
+  const allowedEntries = (options.allowed ?? []).filter((entry) => typeof entry === "string" && entry.trim() !== "");
+  const comparison = { new: [], baselined: [], allowed: [], stale: [] };
+  const used = /* @__PURE__ */ new Set();
+  for (const violation of result.violations) {
+    if (allowedEntries.some((entry2) => entryMatches(entry2, violation.key))) {
+      comparison.allowed.push(violation);
+      continue;
+    }
+    const entry = baseline.find((candidate) => entryMatches(candidate, violation.key));
+    if (entry !== void 0) {
+      used.add(entry);
+      comparison.baselined.push(violation);
+      continue;
+    }
+    comparison.new.push(violation);
+  }
+  comparison.stale = baseline.filter((entry) => !used.has(entry));
+  return comparison;
+}
+
 // src/reporters/console.ts
 import { bold, cyan, green, yellow, red, dim, gray } from "colorette";
 function ratioColour(covered, total) {
@@ -477,6 +742,33 @@ function printReport(coverage, opts = {}) {
     showMissing("Missing status code classes:", coverage.statusCodeClass);
   }
 }
+function printConformanceReport(result, comparison, opts = {}) {
+  const { maxItems = 15 } = opts;
+  const count = (n, colour) => n === 0 ? green("0") : colour(String(n));
+  console.log();
+  console.log(bold(cyan("--- OpenAPI response conformance ---")));
+  console.log(dim("  Calls checked:       "), String(result.checked));
+  console.log(dim("  New violations:      "), count(comparison.new.length, red));
+  console.log(dim("  Baselined:           "), count(comparison.baselined.length, yellow));
+  console.log(dim("  Allowed:             "), String(comparison.allowed.length));
+  console.log(dim("  Stale baseline keys: "), count(comparison.stale.length, yellow));
+  if (result.skipped.length > 0) {
+    console.log(dim("  Uncompiled schemas:  "), yellow(String(result.skipped.length)));
+  }
+  console.log(dim("-------------------------------------------"));
+  console.log();
+  const show = (label, items) => {
+    if (items.length === 0) return;
+    console.log(bold(yellow(label)));
+    items.slice(0, maxItems).forEach((item) => console.log(dim("  ") + gray(item)));
+    if (items.length > maxItems) console.log(dim(`  ... and ${items.length - maxItems} more`));
+    console.log();
+  };
+  const describe = (v) => `${v.key}  ${dim(`\xD7${v.count} \u2014 ${v.message} (e.g. ${v.example})`)}`;
+  show("New violations:", comparison.new.map(describe));
+  show("Stale baseline keys (no longer occur; remove them):", comparison.stale);
+  show("Schemas that did not compile (their responses were not checked):", result.skipped.map((s) => `${s.schema}: ${s.reason}`));
+}
 
 // src/reporters/json.ts
 import fs from "fs";
@@ -487,6 +779,23 @@ function writeJsonReport(coverage, filepath) {
     fs.mkdirSync(dir, { recursive: true });
   }
   fs.writeFileSync(filepath, JSON.stringify(coverage, null, 2), "utf8");
+}
+function writeConformanceJsonReport(result, comparison, filepath) {
+  const dir = path.dirname(filepath);
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+  const report = {
+    checked: result.checked,
+    new: comparison.new,
+    baselined: comparison.baselined,
+    allowed: comparison.allowed,
+    stale: comparison.stale,
+    skipped: result.skipped,
+    /** The baseline that accepts the current state: every violation that is not allowed. */
+    baselineKeys: [...comparison.baselined, ...comparison.new].map((v) => v.key).sort()
+  };
+  fs.writeFileSync(filepath, JSON.stringify(report, null, 2), "utf8");
 }
 
 // src/reporters/html.ts
@@ -543,8 +852,11 @@ function writeHtmlReport(coverage, filepath) {
 }
 export {
   Recorder,
+  checkConformance,
   collectPathsFromValue,
   collectSchemaPaths,
+  compareConformance,
+  compareTemplateSpecificity,
   computeCoverage,
   computeTcl,
   getBasePath,
@@ -552,10 +864,12 @@ export {
   isOperationKey,
   matchRequestToSpec,
   pathTemplateToRegex,
+  printConformanceReport,
   printReport,
   resolveSchemaRef,
   stripBasePath,
   walkSpec,
+  writeConformanceJsonReport,
   writeHtmlReport,
   writeJsonReport
 };

@@ -1,3 +1,6 @@
+// src/adapters/fastify.ts
+import { STATUS_CODES } from "http";
+
 // src/recorder.ts
 var Recorder = class {
   _calls = [];
@@ -11,6 +14,9 @@ var Recorder = class {
       responseStatusCode: opts.responseStatusCode,
       responseContentType: opts.responseContentType ?? null,
       responseBody: opts.responseBody !== void 0 ? opts.responseBody : null,
+      ...opts.responseRawBody !== void 0 ? { responseRawBody: opts.responseRawBody } : {},
+      ...opts.responseRawDatePaths?.length ? { responseRawDatePaths: opts.responseRawDatePaths } : {},
+      ...opts.responseErrorBody !== void 0 ? { responseErrorBody: opts.responseErrorBody } : {},
       statusCodeAsserted: false
     });
   }
@@ -28,9 +34,54 @@ var Recorder = class {
 };
 
 // src/adapters/fastify.ts
+var RAW_BODY = /* @__PURE__ */ Symbol("openApiCoverageRawBody");
+var RAW_DATE_PATHS = /* @__PURE__ */ Symbol("openApiCoverageRawDatePaths");
+var ERROR_BODY = /* @__PURE__ */ Symbol("openApiCoverageErrorBody");
+function datePathsOf(value, path = "", out = /* @__PURE__ */ new Set(), depth = 0) {
+  if (depth > 64 || value === null || typeof value !== "object") return out;
+  if (value instanceof Date) {
+    out.add(path);
+  } else if (Array.isArray(value)) {
+    for (const item of value) datePathsOf(item, `${path}[]`, out, depth + 1);
+  } else {
+    for (const [key, child] of Object.entries(value)) {
+      datePathsOf(child, path === "" ? key : `${path}.${key}`, out, depth + 1);
+    }
+  }
+  return out;
+}
+function snapshot(payload) {
+  try {
+    return { body: JSON.parse(JSON.stringify(payload)), datePaths: [...datePathsOf(payload)] };
+  } catch {
+    return void 0;
+  }
+}
 function registerCoverageHooks(app, options = {}) {
   const recorder = options.recorder ?? new Recorder();
   const autoAssert = options.autoAssertOnInject !== false;
+  const recordRawBody = options.recordRawBody !== false;
+  if (recordRawBody) {
+    app.addHook("preSerialization", function preSerializationCaptureRawBody(request, _reply, payload, done) {
+      const taken = snapshot(payload);
+      if (taken) {
+        ;
+        request[RAW_BODY] = taken.body;
+        request[RAW_DATE_PATHS] = taken.datePaths;
+      }
+      done(null, payload);
+    });
+    app.addHook("onError", function onErrorCaptureErrorBody(request, reply, error, done) {
+      const statusCode = reply.statusCode >= 400 ? reply.statusCode : Number(error.statusCode) || 500;
+      request[ERROR_BODY] = {
+        statusCode,
+        ...error.code !== void 0 ? { code: error.code } : {},
+        error: STATUS_CODES[statusCode] ?? "Error",
+        message: error.message
+      };
+      done();
+    });
+  }
   app.addHook("onSend", function onSendCapturePayload(request, _reply, payload, done) {
     ;
     request._openApiCoveragePayload = payload;
@@ -60,7 +111,10 @@ function registerCoverageHooks(app, options = {}) {
       requestContentType: request.headers?.["content-type"] || null,
       responseStatusCode: reply.statusCode,
       responseContentType: reply.getHeader?.("content-type") || null,
-      responseBody
+      responseBody,
+      responseRawBody: request[RAW_BODY],
+      responseRawDatePaths: request[RAW_DATE_PATHS],
+      responseErrorBody: request[RAW_BODY] === void 0 ? request[ERROR_BODY] : void 0
     });
     done();
   });

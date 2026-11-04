@@ -7,6 +7,23 @@ interface RecordedCall {
     responseStatusCode: number;
     responseContentType?: string | null;
     responseBody?: unknown;
+    /**
+     * What the handler returned, before a schema-driven serializer shaped it, normalised through
+     * JSON (`toJSON` applied, `undefined` dropped). Only an adapter that can see the payload before
+     * serialization records it; without it, dropped fields and coerced types are invisible.
+     */
+    responseRawBody?: unknown;
+    /**
+     * Where `responseRawBody` held a `Date` before the JSON snapshot turned it into an ISO
+     * date-time string (coverage notation, `items[].at`). A schema-driven serializer formats a
+     * `Date` to the declared `date`/`time`, so those format checks do not apply there.
+     */
+    responseRawDatePaths?: string[];
+    /**
+     * For an error response whose payload never reached the adapter before serialization: the
+     * body the framework sends when no schema applies. Used only to detect dropped fields.
+     */
+    responseErrorBody?: unknown;
     statusCodeAsserted?: boolean;
 }
 interface CoverageMetric {
@@ -31,6 +48,55 @@ interface CoverageConfig {
     excludedPaths?: string[];
     excludedResponseBodyProperties?: string[];
     excludedStatusCodes?: string[];
+}
+/**
+ * - `schema`: the body breaks the response schema (checked before serialization when possible)
+ * - `dropped`: a field the handler returned never reached the client
+ * - `status`: the status code is not documented for the operation
+ */
+type ConformanceKind = 'schema' | 'dropped' | 'status';
+interface ConformanceViolation {
+    /**
+     * Stable identity, used for baselines and allow-lists:
+     * `GET /items/{id} 200 dropped items[].secret`, `GET /items/{id} 200 schema:type items[].price`,
+     * `GET /items/{id} 409 status`.
+     */
+    key: string;
+    kind: ConformanceKind;
+    method: string;
+    path: string;
+    statusCode: string;
+    /** Property path in coverage notation (`items[].id`); empty for the whole body. */
+    location: string;
+    /** The JSON Schema keyword that failed, for `schema` violations. */
+    keyword?: string;
+    /** The first occurrence's message. */
+    message: string;
+    /** How many recorded calls produced this violation. */
+    count: number;
+    /** The first request that produced it, for reproducing. */
+    example: string;
+}
+interface ConformanceResult {
+    /** Recorded calls that matched a documented operation. */
+    checked: number;
+    /** One entry per key, sorted by key. */
+    violations: ConformanceViolation[];
+    /** Response schemas that could not be compiled, and why. Their calls were not validated. */
+    skipped: Array<{
+        schema: string;
+        reason: string;
+    }>;
+}
+interface ConformanceComparison {
+    /** Violations neither allowed nor in the baseline: the ones that should fail a run. */
+    new: ConformanceViolation[];
+    /** Violations recorded in the baseline: known debt. */
+    baselined: ConformanceViolation[];
+    /** Violations matching an allow-list entry: intended, never reported as stale. */
+    allowed: ConformanceViolation[];
+    /** Baseline entries that no longer occur, so the baseline can shrink. */
+    stale: string[];
 }
 interface OpenAPISpec {
     openapi?: string;
@@ -174,4 +240,4 @@ declare class Recorder {
 }
 declare function isOperationKey(key: string): boolean;
 
-export { type CoverageConfig as C, type MatchResult as M, type OpenAPISpec as O, type ParameterObject as P, type RecordedCall as R, type SchemaObject as S, type TclInputs as T, type WalkedSpec as W, type CoverageResult as a, type CoverageMetric as b, type MediaTypeObject as c, type OperationObject as d, type PathItem as e, Recorder as f, type ResponseObject as g, type SpecContentType as h, type SpecOperation as i, type SpecParameter as j, type SpecParameterValue as k, type SpecResponseBodyProperty as l, type SpecStatusCode as m, type SpecStatusCodeClass as n, isOperationKey as o };
+export { type CoverageConfig as C, type MatchResult as M, type OpenAPISpec as O, type ParameterObject as P, type RecordedCall as R, type SchemaObject as S, type TclInputs as T, type WalkedSpec as W, type CoverageResult as a, type ConformanceResult as b, type ConformanceComparison as c, type ConformanceKind as d, type ConformanceViolation as e, type CoverageMetric as f, type MediaTypeObject as g, type OperationObject as h, type PathItem as i, Recorder as j, type ResponseObject as k, type SpecContentType as l, type SpecOperation as m, type SpecParameter as n, type SpecParameterValue as o, type SpecResponseBodyProperty as p, type SpecStatusCode as q, type SpecStatusCodeClass as r, isOperationKey as s };
