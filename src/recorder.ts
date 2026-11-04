@@ -16,6 +16,7 @@ export class Recorder {
       responseContentType: opts.responseContentType ?? null,
       responseBody: opts.responseBody !== undefined ? opts.responseBody : null,
       ...(opts.responseRawBody !== undefined ? { responseRawBody: opts.responseRawBody } : {}),
+      ...(opts.responseRawDatePaths?.length ? { responseRawDatePaths: opts.responseRawDatePaths } : {}),
       ...(opts.responseErrorBody !== undefined ? { responseErrorBody: opts.responseErrorBody } : {}),
       statusCodeAsserted: false,
     })

@@ -507,6 +507,8 @@ function createResponseValidator(spec) {
     useDefaults: false,
     removeAdditional: false,
     validateSchema: false,
+    // Keeps the failing value on each error, so a report can say what arrived instead.
+    verbose: true,
     logger: false
   };
   const ajv = is31 ? new import__.default(options) : new import_ajv.default(options);
@@ -535,6 +537,7 @@ function createResponseValidator(spec) {
 }
 
 // src/conformance.ts
+var DATE_FORMATS = /* @__PURE__ */ new Set(["date", "date-time", "time"]);
 function documentedStatus(responses, statusCode) {
   const exact = String(statusCode);
   if (responses[exact]) return exact;
@@ -564,12 +567,19 @@ function locationOf(instancePath) {
 function joinLocation(parent, child) {
   return parent === "" ? child : `${parent}.${child}`;
 }
+function describeValue(value) {
+  if (value === null) return "null";
+  if (Array.isArray(value)) return "array";
+  if (typeof value === "string") return value.length <= 24 ? `string ${JSON.stringify(value)}` : "string";
+  return typeof value;
+}
 function schemaViolation(error) {
   let location = locationOf(error.instancePath);
   if (error.keyword === "required") {
     location = joinLocation(location, String(error.params.missingProperty));
   }
-  return { location, keyword: error.keyword, message: `${location || "(body)"} ${error.message ?? "is invalid"}` };
+  const got = ["type", "format", "enum"].includes(error.keyword) && "data" in error ? `, got ${describeValue(error.data)}` : "";
+  return { location, keyword: error.keyword, message: `${location || "(body)"} ${error.message ?? "is invalid"}${got}` };
 }
 var propertyPaths = (value) => collectPathsFromValue(value).map((path3) => path3.replace(/\[\]\.\./g, "[]."));
 function droppedPaths(intended, sent) {
@@ -620,6 +630,8 @@ function checkConformance(recordedCalls, spec, config = {}) {
       continue;
     }
     const reported = { method, path: path3, statusCode: String(call.responseStatusCode) };
+    const contentType = (call.responseContentType ?? "").split(";")[0].trim().toLowerCase();
+    if (!contentType.includes("json")) continue;
     const intended = call.responseRawBody !== void 0 ? call.responseRawBody : call.responseErrorBody;
     if (intended !== void 0 && call.responseBody != null) {
       for (const location of droppedPaths(intended, call.responseBody)) {
@@ -632,8 +644,7 @@ function checkConformance(recordedCalls, spec, config = {}) {
       }
     }
     const content = responses[statusCode]?.content;
-    const contentType = (call.responseContentType ?? "").split(";")[0].trim().toLowerCase();
-    if (!content || !contentType) continue;
+    if (!content) continue;
     const mediaType = documentedMediaType(content, contentType);
     if (!mediaType || content[mediaType]?.schema === void 0) continue;
     const body = call.responseRawBody !== void 0 ? call.responseRawBody : call.responseBody;
@@ -644,7 +655,11 @@ function checkConformance(recordedCalls, spec, config = {}) {
       skipped.set(`${method} ${path3} ${statusCode} ${mediaType}`, errors);
       continue;
     }
+    const datePaths = call.responseRawBody !== void 0 ? new Set(call.responseRawDatePaths ?? []) : /* @__PURE__ */ new Set();
     for (const error of errors) {
+      if (error.keyword === "format" && DATE_FORMATS.has(String(error.params.format)) && datePaths.has(locationOf(error.instancePath))) {
+        continue;
+      }
       report(call, { kind: "schema", ...reported, ...schemaViolation(error) });
     }
   }

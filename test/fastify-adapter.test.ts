@@ -91,6 +91,28 @@ describe('Fastify adapter + checkConformance', () => {
     ])
   })
 
+  it('lets a Date stand for a declared date, but not a date-time string', async () => {
+    const app: FastifyInstance = Fastify()
+    const recorder = registerCoverageHooks(app)
+    const dated = {
+      type: 'object',
+      properties: { starts: { type: 'string', format: 'date' }, ends: { type: 'string', format: 'date' } },
+    }
+    app.get('/contracts/:id', { schema: { response: { 200: dated } } }, async () => ({
+      starts: new Date('2024-04-01T07:00:00.000Z'),
+      ends: '2024-09-30T07:00:00.000Z',
+    }))
+    await app.inject('/contracts/1')
+
+    const datedSpec: OpenAPISpec = {
+      openapi: '3.0.3',
+      paths: { '/contracts/{id}': { get: { responses: { 200: { content: { 'application/json': { schema: dated } } } } } } },
+    }
+    expect(checkConformance(recorder.getCalls(), datedSpec).violations.map(v => v.key)).toEqual([
+      'GET /contracts/{id} 200 schema:format ends',
+    ])
+  })
+
   it('records only the sent body when raw recording is off', async () => {
     const { app, recorder } = await build({ recordRawBody: false })
     await app.inject('/projects/7/table')

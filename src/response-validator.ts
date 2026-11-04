@@ -87,6 +87,8 @@ export function createResponseValidator(spec: OpenAPISpec): ResponseValidator {
     useDefaults: false,
     removeAdditional: false,
     validateSchema: false,
+    // Keeps the failing value on each error, so a report can say what arrived instead.
+    verbose: true,
     logger: false,
   } as const
   const ajv = is31 ? new Ajv2020(options) : new AjvDraft07(options)

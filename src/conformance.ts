@@ -16,6 +16,10 @@ import { createResponseValidator, pointerSegment } from './response-validator.js
 
 type Responses = Record<string, { content?: Record<string, { schema?: unknown }> } | undefined>
 
+// A handler's `Date` is snapshotted as an ISO date-time; the serializer would have formatted it to
+// whichever of these the schema declares, so their format check does not apply to a `Date`.
+const DATE_FORMATS = new Set(['date', 'date-time', 'time'])
+
 /** The documented response for a status: exact code, then its range (`4XX`), then `default`. */
 function documentedStatus(responses: Responses, statusCode: number): string | null {
   const exact = String(statusCode)
@@ -52,12 +56,23 @@ function joinLocation(parent: string, child: string): string {
   return parent === '' ? child : `${parent}.${child}`
 }
 
+/** What arrived, briefly: the type for most values, the value itself for short strings. */
+function describeValue(value: unknown): string {
+  if (value === null) return 'null'
+  if (Array.isArray(value)) return 'array'
+  if (typeof value === 'string') return value.length <= 24 ? `string ${JSON.stringify(value)}` : 'string'
+  return typeof value
+}
+
 function schemaViolation(error: ErrorObject): { location: string; keyword: string; message: string } {
   let location = locationOf(error.instancePath)
   if (error.keyword === 'required') {
     location = joinLocation(location, String((error.params as { missingProperty?: string }).missingProperty))
   }
-  return { location, keyword: error.keyword, message: `${location || '(body)'} ${error.message ?? 'is invalid'}` }
+  // `type` and `format` failures are only triageable with the value: `null` for a non-nullable
+  // string and a numeric string for a number are different bugs.
+  const got = ['type', 'format', 'enum'].includes(error.keyword) && 'data' in error ? `, got ${describeValue(error.data)}` : ''
+  return { location, keyword: error.keyword, message: `${location || '(body)'} ${error.message ?? 'is invalid'}${got}` }
 }
 
 // `collectPathsFromValue` writes array children as `items[]..id`. Coverage keys (and consumers'
@@ -136,6 +151,11 @@ export function checkConformance(
 
     const reported = { method, path, statusCode: String(call.responseStatusCode) }
 
+    // Only a JSON body is data. A CSV export is recorded as whatever the framework sent (a stream,
+    // a Buffer, a string), which says nothing about its schema.
+    const contentType = (call.responseContentType ?? '').split(';')[0].trim().toLowerCase()
+    if (!contentType.includes('json')) continue
+
     const intended = call.responseRawBody !== undefined ? call.responseRawBody : call.responseErrorBody
     if (intended !== undefined && call.responseBody != null) {
       for (const location of droppedPaths(intended, call.responseBody)) {
@@ -149,8 +169,7 @@ export function checkConformance(
     }
 
     const content = responses[statusCode]?.content
-    const contentType = (call.responseContentType ?? '').split(';')[0].trim().toLowerCase()
-    if (!content || !contentType) continue
+    if (!content) continue
     const mediaType = documentedMediaType(content, contentType)
     if (!mediaType || content[mediaType]?.schema === undefined) continue
 
@@ -165,7 +184,15 @@ export function checkConformance(
       skipped.set(`${method} ${path} ${statusCode} ${mediaType}`, errors)
       continue
     }
+    const datePaths = call.responseRawBody !== undefined ? new Set(call.responseRawDatePaths ?? []) : new Set<string>()
     for (const error of errors) {
+      if (
+        error.keyword === 'format' &&
+        DATE_FORMATS.has(String((error.params as { format?: unknown }).format)) &&
+        datePaths.has(locationOf(error.instancePath))
+      ) {
+        continue
+      }
       report(call, { kind: 'schema', ...reported, ...schemaViolation(error) })
     }
   }

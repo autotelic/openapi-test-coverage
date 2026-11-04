@@ -14,6 +14,12 @@ interface RecordedCall {
      */
     responseRawBody?: unknown;
     /**
+     * Where `responseRawBody` held a `Date` before the JSON snapshot turned it into an ISO
+     * date-time string (coverage notation, `items[].at`). A schema-driven serializer formats a
+     * `Date` to the declared `date`/`time`, so those format checks do not apply there.
+     */
+    responseRawDatePaths?: string[];
+    /**
      * For an error response whose payload never reached the adapter before serialization: the
      * body the framework sends when no schema applies. Used only to detect dropped fields.
      */

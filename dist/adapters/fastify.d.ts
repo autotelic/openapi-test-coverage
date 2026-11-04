@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { j as Recorder } from '../recorder-B_KoKHOJ.js';
+import { j as Recorder } from '../recorder-D5e9Fpe5.js';
 
 interface FastifyCoverageOptions {
     /** Existing recorder instance. If omitted a new one is created and returned. */

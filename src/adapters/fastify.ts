@@ -18,14 +18,34 @@ export interface FastifyCoverageOptions {
 }
 
 const RAW_BODY = Symbol('openApiCoverageRawBody')
+const RAW_DATE_PATHS = Symbol('openApiCoverageRawDatePaths')
 const ERROR_BODY = Symbol('openApiCoverageErrorBody')
 
-type RecordingRequest = FastifyRequest & { [RAW_BODY]?: unknown; [ERROR_BODY]?: unknown }
+type RecordingRequest = FastifyRequest & {
+  [RAW_BODY]?: unknown
+  [RAW_DATE_PATHS]?: string[]
+  [ERROR_BODY]?: unknown
+}
+
+/** Where a payload holds `Date` objects, in coverage notation (`items[].at`). */
+function datePathsOf(value: unknown, path = '', out = new Set<string>(), depth = 0): Set<string> {
+  if (depth > 64 || value === null || typeof value !== 'object') return out
+  if (value instanceof Date) {
+    out.add(path)
+  } else if (Array.isArray(value)) {
+    for (const item of value) datePathsOf(item, `${path}[]`, out, depth + 1)
+  } else {
+    for (const [key, child] of Object.entries(value as Record<string, unknown>)) {
+      datePathsOf(child, path === '' ? key : `${path}.${key}`, out, depth + 1)
+    }
+  }
+  return out
+}
 
 /** Snapshot through JSON, as any serializer would see it: `toJSON` applied, `undefined` gone. */
-function snapshot(payload: unknown): unknown {
+function snapshot(payload: unknown): { body: unknown; datePaths: string[] } | undefined {
   try {
-    return JSON.parse(JSON.stringify(payload))
+    return { body: JSON.parse(JSON.stringify(payload)), datePaths: [...datePathsOf(payload)] }
   } catch {
     return undefined
   }
@@ -59,7 +79,11 @@ export function registerCoverageHooks(
       payload: unknown,
       done: (err: Error | null, value?: unknown) => void,
     ) {
-      ;(request as RecordingRequest)[RAW_BODY] = snapshot(payload)
+      const taken = snapshot(payload)
+      if (taken) {
+        ;(request as RecordingRequest)[RAW_BODY] = taken.body
+        ;(request as RecordingRequest)[RAW_DATE_PATHS] = taken.datePaths
+      }
       done(null, payload)
     })
 
@@ -125,6 +149,7 @@ export function registerCoverageHooks(
       responseContentType: (reply.getHeader?.('content-type') as string) || null,
       responseBody,
       responseRawBody: (request as RecordingRequest)[RAW_BODY],
+      responseRawDatePaths: (request as RecordingRequest)[RAW_DATE_PATHS],
       responseErrorBody: (request as RecordingRequest)[RAW_BODY] === undefined
         ? (request as RecordingRequest)[ERROR_BODY]
         : undefined,

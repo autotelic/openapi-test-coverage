@@ -88,9 +88,14 @@ describe('checkConformance', () => {
   it('validates what the handler returned, not what the serializer coerced it into', () => {
     const raw = { ...project, id: null }
     const sent = { ...project, id: 0 }
-    expect(keys([call({ responseRawBody: raw, responseBody: sent })])).toEqual([
-      'GET /projects/{id} 200 schema:type id',
-    ])
+    const result = checkConformance([call({ responseRawBody: raw, responseBody: sent })], spec)
+    expect(result.violations.map(v => v.key)).toEqual(['GET /projects/{id} 200 schema:type id'])
+    expect(result.violations[0].message).toBe('id must be integer, got null')
+  })
+
+  it('says what a numeric string was, so a coerced count is told apart from a null', () => {
+    const result = checkConformance([call({ responseRawBody: { ...project, id: '7' } })], spec)
+    expect(result.violations[0].message).toBe('id must be integer, got string "7"')
   })
 
   it('falls back to the sent body when no raw body was recorded', () => {
@@ -156,6 +161,23 @@ describe('checkConformance', () => {
     )
     expect(result.violations).toHaveLength(1)
     expect(result.violations[0]).toMatchObject({ count: 2, example: 'GET /v1/projects/7', location: 'id' })
+  })
+
+  it('checks only JSON bodies: a streamed CSV is not data', () => {
+    const csv: OpenAPISpec = {
+      openapi: '3.0.3',
+      paths: {
+        '/export': {
+          get: { responses: { 200: { content: { 'text/csv': { schema: { type: 'string', format: 'binary' } } } } } },
+        },
+      },
+    }
+    const stream = { _readableState: {}, readable: true }
+    const result = checkConformance(
+      [call({ pathname: '/export', responseContentType: 'text/csv; charset=utf-8', responseBody: stream })],
+      csv,
+    )
+    expect(result).toEqual({ checked: 1, violations: [], skipped: [] })
   })
 
   it('ignores calls outside the spec and excluded paths', () => {
