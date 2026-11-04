@@ -1,5 +1,5 @@
 import { FastifyInstance } from 'fastify';
-import { f as Recorder } from '../recorder-QBQBCtUG.cjs';
+import { j as Recorder } from '../recorder-B_KoKHOJ.cjs';
 
 interface FastifyCoverageOptions {
     /** Existing recorder instance. If omitted a new one is created and returned. */
@@ -9,6 +9,11 @@ interface FastifyCoverageOptions {
      * call automatically marks the response as asserted.
      */
     autoAssertOnInject?: boolean;
+    /**
+     * When true (default), also record what the handler returned before Fastify serialized it,
+     * so `checkConformance()` can see fields the response schema stripped and values it coerced.
+     */
+    recordRawBody?: boolean;
 }
 /**
  * Register onSend + onResponse hooks on a Fastify instance to record

@@ -1,3 +1,6 @@
+// src/adapters/fastify.ts
+import { STATUS_CODES } from "http";
+
 // src/recorder.ts
 var Recorder = class {
   _calls = [];
@@ -11,6 +14,8 @@ var Recorder = class {
       responseStatusCode: opts.responseStatusCode,
       responseContentType: opts.responseContentType ?? null,
       responseBody: opts.responseBody !== void 0 ? opts.responseBody : null,
+      ...opts.responseRawBody !== void 0 ? { responseRawBody: opts.responseRawBody } : {},
+      ...opts.responseErrorBody !== void 0 ? { responseErrorBody: opts.responseErrorBody } : {},
       statusCodeAsserted: false
     });
   }
@@ -28,9 +33,36 @@ var Recorder = class {
 };
 
 // src/adapters/fastify.ts
+var RAW_BODY = /* @__PURE__ */ Symbol("openApiCoverageRawBody");
+var ERROR_BODY = /* @__PURE__ */ Symbol("openApiCoverageErrorBody");
+function snapshot(payload) {
+  try {
+    return JSON.parse(JSON.stringify(payload));
+  } catch {
+    return void 0;
+  }
+}
 function registerCoverageHooks(app, options = {}) {
   const recorder = options.recorder ?? new Recorder();
   const autoAssert = options.autoAssertOnInject !== false;
+  const recordRawBody = options.recordRawBody !== false;
+  if (recordRawBody) {
+    app.addHook("preSerialization", function preSerializationCaptureRawBody(request, _reply, payload, done) {
+      ;
+      request[RAW_BODY] = snapshot(payload);
+      done(null, payload);
+    });
+    app.addHook("onError", function onErrorCaptureErrorBody(request, reply, error, done) {
+      const statusCode = reply.statusCode >= 400 ? reply.statusCode : Number(error.statusCode) || 500;
+      request[ERROR_BODY] = {
+        statusCode,
+        ...error.code !== void 0 ? { code: error.code } : {},
+        error: STATUS_CODES[statusCode] ?? "Error",
+        message: error.message
+      };
+      done();
+    });
+  }
   app.addHook("onSend", function onSendCapturePayload(request, _reply, payload, done) {
     ;
     request._openApiCoveragePayload = payload;
@@ -60,7 +92,9 @@ function registerCoverageHooks(app, options = {}) {
       requestContentType: request.headers?.["content-type"] || null,
       responseStatusCode: reply.statusCode,
       responseContentType: reply.getHeader?.("content-type") || null,
-      responseBody
+      responseBody,
+      responseRawBody: request[RAW_BODY],
+      responseErrorBody: request[RAW_BODY] === void 0 ? request[ERROR_BODY] : void 0
     });
     done();
   });
