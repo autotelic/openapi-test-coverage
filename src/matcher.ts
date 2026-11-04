@@ -24,6 +24,21 @@ export function pathTemplateToRegex(pathTemplate: string): { regex: RegExp; para
 }
 
 /**
+ * Most specific template first: deeper paths, then fewer parameters, then longer text.
+ * Length alone is not enough: `/projects/{projectId}` is longer than `/projects/table` and
+ * would claim `/projects/table` as a project id.
+ */
+export function compareTemplateSpecificity(a: string, b: string): number {
+  const segmentsA = a.split('/')
+  const segmentsB = b.split('/')
+  if (segmentsA.length !== segmentsB.length) return segmentsB.length - segmentsA.length
+  const parametersA = segmentsA.filter(segment => segment.includes('{')).length
+  const parametersB = segmentsB.filter(segment => segment.includes('{')).length
+  if (parametersA !== parametersB) return parametersA - parametersB
+  return b.length - a.length
+}
+
+/**
  * Match a recorded request to a spec path template. Returns the matched
  * path key, normalised method, and extracted path params; or null if no
  * spec path matches.
@@ -37,7 +52,7 @@ export function matchRequestToSpec(
   const rawPath = (recordedCall.pathname || '').replace(/\/+$/, '') || '/'
   const pathname = stripBasePath(rawPath, basePath)
 
-  const sortedPaths = [...specPathKeys].sort((a, b) => b.length - a.length)
+  const sortedPaths = [...specPathKeys].sort(compareTemplateSpecificity)
   for (const pathKey of sortedPaths) {
     const { regex, paramNames } = pathTemplateToRegex(pathKey)
     const match = pathname.match(regex)
