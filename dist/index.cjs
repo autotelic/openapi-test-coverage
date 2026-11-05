@@ -128,8 +128,7 @@ function collectSchemaPaths(spec, schema, prefix = "", seen = /* @__PURE__ */ ne
   if (resolved.type === "array" && resolved.items) {
     const arrayPrefix = prefix ? `${prefix}[]` : "[]";
     paths.push(arrayPrefix);
-    const childPrefix = arrayPrefix + ".";
-    paths.push(...collectSchemaPaths(spec, resolved.items, childPrefix, seen));
+    paths.push(...collectSchemaPaths(spec, resolved.items, arrayPrefix, seen));
     return paths;
   }
   return paths;
@@ -140,9 +139,8 @@ function collectPathsFromValue(value, prefix = "") {
   if (Array.isArray(value)) {
     const arrayPrefix = prefix ? `${prefix}[]` : "[]";
     paths.push(arrayPrefix);
-    const childPrefix = arrayPrefix + ".";
     for (let i = 0; i < value.length; i++) {
-      paths.push(...collectPathsFromValue(value[i], childPrefix));
+      paths.push(...collectPathsFromValue(value[i], arrayPrefix));
     }
     return paths;
   }
@@ -631,11 +629,10 @@ function schemaViolation(error) {
   const got = ["type", "format", "enum"].includes(error.keyword) && "data" in error ? `, got ${describeValue(error.data)}` : "";
   return { location, keyword: error.keyword, message: `${location || "(body)"} ${error.message ?? "is invalid"}${got}` };
 }
-var propertyPaths = (value) => collectPathsFromValue(value).map((path3) => path3.replace(/\[\]\.\./g, "[]."));
 function droppedPaths(intended, sent) {
-  const kept = new Set(propertyPaths(sent));
+  const kept = new Set(collectPathsFromValue(sent));
   const dropped = /* @__PURE__ */ new Set();
-  for (const path3 of propertyPaths(intended)) {
+  for (const path3 of collectPathsFromValue(intended)) {
     if (kept.has(path3)) continue;
     if ([...dropped].some((parent) => path3.startsWith(`${parent}.`) || path3.startsWith(`${parent}[]`))) continue;
     dropped.add(path3);
@@ -719,11 +716,19 @@ function checkConformance(recordedCalls, spec, config = {}) {
     skipped: [...skipped].map(([schema, reason]) => ({ schema, reason }))
   };
 }
+function leafMatches(field, segment) {
+  return segment === field || segment.endsWith(`.${field}`);
+}
 function entryMatches(entry, key) {
   const want = entry.trim().split(/\s+/);
   const have = key.split(" ");
+  if (want.length === 1 && want[0].startsWith("**.")) {
+    return leafMatches(want[0].slice(3), have[have.length - 1]);
+  }
   if (want.length !== have.length) return false;
-  return want.every((segment, i) => segment === "*" || segment === have[i]);
+  return want.every(
+    (segment, i) => segment === "*" || segment === have[i] || segment.startsWith("**.") && leafMatches(segment.slice(3), have[i])
+  );
 }
 function compareConformance(result, options = {}) {
   const baseline = (options.baseline ?? []).filter((entry) => typeof entry === "string" && entry.trim() !== "");

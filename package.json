@@ -3,7 +3,7 @@
   "publishConfig": {
     "access": "public"
   },
-  "version": "0.2.0",
+  "version": "0.3.0",
   "packageManager": "pnpm@9.15.4",
   "description": "OpenAPI test coverage analysis based on the A-TEST '19 coverage criteria (TCL 0-7). Records HTTP traffic, computes coverage against an OpenAPI spec, and reports results.",
   "license": "MIT",
