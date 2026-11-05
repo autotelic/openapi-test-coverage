@@ -222,6 +222,7 @@ const result = checkConformance(recorder.getCalls(), openapiSpec, { excludedPath
 const comparison = compareConformance(result, {
   baseline: require('./openapi-conformance-baseline.json'), // known debt; entries that stop occurring come back as `stale`
   allowed: ['* * * dropped password_hash'],                // intended; `*` matches one key segment
+  // allowed: ['**.tenant_id'],                            // `**.field` matches by leaf field name, any route
 })
 comparison.new // violations that should fail a run
 ```

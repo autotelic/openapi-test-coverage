@@ -200,12 +200,26 @@ export function checkConformance(
   }
 }
 
-/** An entry matches a key segment by segment; `*` matches any one segment. */
+/** A `**.field` segment matches a location whose leaf is `field`, at any depth. */
+function leafMatches(field: string, segment: string): boolean {
+  return segment === field || segment.endsWith(`.${field}`)
+}
+
+/**
+ * An entry matches a key segment by segment; `*` matches any one segment, and a `**.field`
+ * segment matches that segment by leaf field name. A lone `**.field` entry matches any
+ * violation whose location's leaf is `field`, whatever route or kind it is.
+ */
 function entryMatches(entry: string, key: string): boolean {
   const want = entry.trim().split(/\s+/)
   const have = key.split(' ')
+  if (want.length === 1 && want[0].startsWith('**.')) {
+    return leafMatches(want[0].slice(3), have[have.length - 1])
+  }
   if (want.length !== have.length) return false
-  return want.every((segment, i) => segment === '*' || segment === have[i])
+  return want.every(
+    (segment, i) => segment === '*' || segment === have[i] || (segment.startsWith('**.') && leafMatches(segment.slice(3), have[i])),
+  )
 }
 
 /**
