@@ -149,7 +149,7 @@ export function createCoverageAfterAll(options: MochaCoverageOptions): () => voi
           `${comparison.new.length} new response conformance violation(s): ` +
             comparison.new.slice(0, 5).map(v => v.key).join('; ') +
             (comparison.new.length > 5 ? '; …' : '') +
-            '. Fix the handler or the spec, or add the key to the conformance baseline.',
+            '. Fix the handler or the spec; the conformance baseline records existing debt, not new violations.',
         )
       }
     }

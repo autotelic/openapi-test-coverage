@@ -222,6 +222,7 @@ const result = checkConformance(recorder.getCalls(), openapiSpec, { excludedPath
 const comparison = compareConformance(result, {
   baseline: require('./openapi-conformance-baseline.json'), // known debt; entries that stop occurring come back as `stale`
   allowed: ['* * * dropped password_hash'],                // intended; `*` matches one key segment
+  // allowed: ['**.tenant_id'],                            // `**.field` matches by leaf field name, any route
 })
 comparison.new // violations that should fail a run
 ```
@@ -243,7 +244,7 @@ createCoverageAfterAll({
 
 Schemas are validated with Ajv against the spec document itself, not the framework's copy of it. OpenAPI 3.0's `nullable` and boolean `exclusiveMinimum`/`exclusiveMaximum` are rewritten to their JSON Schema meaning first, and 3.1 specs use JSON Schema 2020-12. A schema that cannot compile is listed in `result.skipped` and its responses are not checked. The run does not fail on it.
 
-Conformance keys write array children as `items[].id`. Coverage keys (and so `excludedResponseBodyProperties`) still use `items[]..id`, which is kept as-is so that existing exclusion lists keep matching.
+Keys write array children as `items[].id` — coverage keys, conformance keys, and so `excludedResponseBodyProperties` all use the one notation. (Before 0.3.0 coverage keys used `items[]..id`; exclusion lists written against 0.2.x must drop the second dot.)
 
 ## Development
 

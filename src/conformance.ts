@@ -75,14 +75,10 @@ function schemaViolation(error: ErrorObject): { location: string; keyword: strin
   return { location, keyword: error.keyword, message: `${location || '(body)'} ${error.message ?? 'is invalid'}${got}` }
 }
 
-// `collectPathsFromValue` writes array children as `items[]..id`. Coverage keys (and consumers'
-// coverage exclusions) depend on that, so it stays; conformance keys use the documented `items[].id`.
-const propertyPaths = (value: unknown) => collectPathsFromValue(value).map(path => path.replace(/\[\]\.\./g, '[].'))
-
 function droppedPaths(intended: unknown, sent: unknown): string[] {
-  const kept = new Set(propertyPaths(sent))
+  const kept = new Set(collectPathsFromValue(sent))
   const dropped = new Set<string>()
-  for (const path of propertyPaths(intended)) {
+  for (const path of collectPathsFromValue(intended)) {
     if (kept.has(path)) continue
     // Report the outermost missing field, not every field beneath it.
     if ([...dropped].some(parent => path.startsWith(`${parent}.`) || path.startsWith(`${parent}[]`))) continue
@@ -204,12 +200,26 @@ export function checkConformance(
   }
 }
 
-/** An entry matches a key segment by segment; `*` matches any one segment. */
+/** A `**.field` segment matches a location whose leaf is `field`, at any depth. */
+function leafMatches(field: string, segment: string): boolean {
+  return segment === field || segment.endsWith(`.${field}`)
+}
+
+/**
+ * An entry matches a key segment by segment; `*` matches any one segment, and a `**.field`
+ * segment matches that segment by leaf field name. A lone `**.field` entry matches any
+ * violation whose location's leaf is `field`, whatever route or kind it is.
+ */
 function entryMatches(entry: string, key: string): boolean {
   const want = entry.trim().split(/\s+/)
   const have = key.split(' ')
+  if (want.length === 1 && want[0].startsWith('**.')) {
+    return leafMatches(want[0].slice(3), have[have.length - 1])
+  }
   if (want.length !== have.length) return false
-  return want.every((segment, i) => segment === '*' || segment === have[i])
+  return want.every(
+    (segment, i) => segment === '*' || segment === have[i] || (segment.startsWith('**.') && leafMatches(segment.slice(3), have[i])),
+  )
 }
 
 /**

@@ -264,4 +264,16 @@ describe('compareConformance', () => {
     expect(comparison.new).toHaveLength(3)
     expect(comparison.stale).toEqual([])
   })
+
+  it('matches a lone `**.field` entry against any violation whose location leaf is that field', () => {
+    const comparison = compareConformance(result, { allowed: ['**.id'] })
+    expect(comparison.allowed.map(v => v.key)).toEqual(['GET /projects/{id} 200 schema:type id'])
+    expect(comparison.new.map(v => v.key)).toEqual(['GET /projects/{id} 200 dropped password_hash', 'GET /projects/{id} 500 status'])
+  })
+
+  it('matches a `**.field` segment in a full-length entry, and only on a leaf boundary', () => {
+    const comparison = compareConformance(result, { allowed: ['* * * dropped **.password_hash', '**.d'] })
+    expect(comparison.allowed.map(v => v.key)).toEqual(['GET /projects/{id} 200 dropped password_hash'])
+    expect(comparison.new.map(v => v.key)).toEqual(['GET /projects/{id} 200 schema:type id', 'GET /projects/{id} 500 status'])
+  })
 })
