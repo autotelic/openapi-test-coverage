@@ -49,8 +49,7 @@ export function collectSchemaPaths(
   if (resolved.type === 'array' && resolved.items) {
     const arrayPrefix = prefix ? `${prefix}[]` : '[]'
     paths.push(arrayPrefix)
-    const childPrefix = arrayPrefix + '.'
-    paths.push(...collectSchemaPaths(spec, resolved.items, childPrefix, seen))
+    paths.push(...collectSchemaPaths(spec, resolved.items, arrayPrefix, seen))
     return paths
   }
   return paths
@@ -65,9 +64,8 @@ export function collectPathsFromValue(value: unknown, prefix = ''): string[] {
   if (Array.isArray(value)) {
     const arrayPrefix = prefix ? `${prefix}[]` : '[]'
     paths.push(arrayPrefix)
-    const childPrefix = arrayPrefix + '.'
     for (let i = 0; i < value.length; i++) {
-      paths.push(...collectPathsFromValue(value[i], childPrefix))
+      paths.push(...collectPathsFromValue(value[i], arrayPrefix))
     }
     return paths
   }

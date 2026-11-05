@@ -75,14 +75,10 @@ function schemaViolation(error: ErrorObject): { location: string; keyword: strin
   return { location, keyword: error.keyword, message: `${location || '(body)'} ${error.message ?? 'is invalid'}${got}` }
 }
 
-// `collectPathsFromValue` writes array children as `items[]..id`. Coverage keys (and consumers'
-// coverage exclusions) depend on that, so it stays; conformance keys use the documented `items[].id`.
-const propertyPaths = (value: unknown) => collectPathsFromValue(value).map(path => path.replace(/\[\]\.\./g, '[].'))
-
 function droppedPaths(intended: unknown, sent: unknown): string[] {
-  const kept = new Set(propertyPaths(sent))
+  const kept = new Set(collectPathsFromValue(sent))
   const dropped = new Set<string>()
-  for (const path of propertyPaths(intended)) {
+  for (const path of collectPathsFromValue(intended)) {
     if (kept.has(path)) continue
     // Report the outermost missing field, not every field beneath it.
     if ([...dropped].some(parent => path.startsWith(`${parent}.`) || path.startsWith(`${parent}[]`))) continue
